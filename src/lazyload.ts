@@ -1,35 +1,33 @@
 
 class LazyLoad {
     rundynamic:Boolean = true;
-    lazyselector:string = '*[lazy-load]';
     list:LazyDom[] = [];
+
+    page_key:string = 'page';
     
-    constructor(selector:string|null) {
-        if(selector != void 0){
-            this.lazyselector = selector;
-        }
+    constructor() {
     }
 
-    run(){
-        this.get_lazy().forEach(element => {
-            element.updateContent();
-        });
-    }
-
-    get_lazy(){
+    updateDomList(){
         if (this.rundynamic == true || this.list.length == 0) {
-            let doms:NodeListOf<Element> = document.querySelectorAll(this.lazyselector);
+            let doms:NodeListOf<Element> = document.querySelectorAll('*[lazy-load]');
 
             doms.forEach(element => {
-                this.list.push(new LazyDom(element));
+                this.create(element);
             })
         }
         return this.list;
     }
 
-    request(method:string, url:string = '', data:object = {}) {
-        
+    create(dom:Element){
+        if(dom.getAttribute('lazy-load') == '')
+            this.list.push(new LazyDom(dom));
+    }
+
+    request(method:string, url:string = '', data:object = {}, page:number = 0) {
         let xhr:XMLHttpRequest = new XMLHttpRequest();
+
+        Object.assign(data, { [this.page_key]: page.toString() });
 
         switch (method.toUpperCase()) {
             case 'POST':
@@ -39,15 +37,24 @@ class LazyLoad {
 
             case 'GET':
                 let search_params = new URLSearchParams();
+                let use_query = false;
+
+                search_params.set(this.page_key, page.toString());
 
                 for (let key in data) {
                     if (Object.prototype.hasOwnProperty.call(data, key)) {
                         let val = data[key as keyof typeof data];
                         search_params.set(key, val);
+
+                        use_query = true;
                     }
                 }
 
-                xhr.open('GET', `${url}${search_params.toString()}`, true);
+                if(use_query){
+                    url += `?${search_params.toString()}`;
+                }
+
+                xhr.open('GET', url, true);
                 break;
         
             default:
@@ -77,7 +84,7 @@ class LazyDom extends LazyLoad {
     private template:String;
 
     constructor(dom:Element|String) {
-        super(null);
+        super();
 
         if(dom instanceof String){
             let _dom = document.querySelector(`*[lazy-load=${dom}]`);
@@ -96,6 +103,23 @@ class LazyDom extends LazyLoad {
         
         // Set uniq code
         this.dom.setAttribute('lazy-load', this.generateCode());
+
+        this.updateContent(0);
+
+        this.dom.addEventListener('scroll', (event) => {
+            let {
+                scrollTop,
+                scrollHeight,
+                clientHeight
+            } = this.dom;
+
+            if (scrollTop + clientHeight >= scrollHeight - 5) {
+                
+            }
+        }, {
+            passive: true
+        });
+    
     }
 
     generateCode(){
@@ -106,7 +130,7 @@ class LazyDom extends LazyLoad {
         return (fourChars() + fourChars() + "-" + fourChars() + "-" + fourChars() + "-" + fourChars() + "-" + fourChars() + fourChars() + fourChars());
     }
 
-    updateContent(){
+    updateContent(page:number|null){
         let data:string|null = this.dom.getAttribute('lazy-load-data');
         let url:string|null = this.dom.getAttribute('lazy-load-url');
         let method:string|null = this.dom.getAttribute('lazy-load-method');
@@ -121,22 +145,44 @@ class LazyDom extends LazyLoad {
         if(data != void 0)
             data_obj = JSON.parse(data);
 
-        this.request(method, url, data_obj);
+        if(page == void 0)
+            page = 0
+
+        this.request(method, url, data_obj, page);
     }
 
     setContent(data:object[]){
         
+        let parser = new DOMParser();
+        let doc:Document;
+
         data.forEach(element => {
-            let template = this.template;
+            let template:String = this.template;
+            let lazyid:any = null;
 
             for (let key in element) {
                 if (element.hasOwnProperty(key)) {
                     template = template.replace(`[[${key}]]`, element[key as keyof typeof element]);
+
+                    if(key == 'lazy-id' || key == 'lazyid' || key == 'id'){
+                        lazyid = element[key as keyof typeof element];
+                    }
                 }
             }
 
-            this.dom.innerHTML += template;
+            doc = parser.parseFromString(template.toString(), 'text/html');
+
+            if(lazyid != void 0){
+                let child = doc.body.children.item(0);
+                if(child != null)
+                    child.setAttribute('lazy-dom-id', lazyid);
+            }
+
+            this.dom.innerHTML += doc.body.innerHTML;
         });
         
     }
 }
+
+var $lazyload = new LazyLoad();
+$lazyload.updateDomList();
