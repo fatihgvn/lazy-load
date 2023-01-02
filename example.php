@@ -43,49 +43,27 @@ function lorem($count = 1, $max = 20, $standard = true) {
 }
 
 
-$json_data = [
-    [
-        "title" => lorem(1, 5, false),
-        "content" => lorem(3)
-    ],
-    [
-        "title" => lorem(1, 5, false),
-        "content" => lorem(3)
-    ],
-    [
-        "title" => lorem(1, 5, false),
-        "content" => lorem(3)
-    ],
-    [
-        "title" => lorem(1, 5, false),
-        "content" => lorem(3)
-    ],
-    [
-        "title" => lorem(1, 5, false),
-        "content" => lorem(3)
-    ],
-    [
-        "title" => lorem(1, 5, false),
-        "content" => lorem(3)
-    ],
-    [
-        "title" => lorem(1, 5, false),
-        "content" => lorem(3)
-    ],
-    [
-        "title" => lorem(1, 5, false),
-        "content" => lorem(3)
-    ],
-    [
-        "title" => lorem(1, 5, false),
-        "content" => lorem(3)
-    ],
-    [
-        "title" => lorem(1, 5, false),
-        "content" => lorem(3)
-    ]
-];
+$json_data = [];
 
+for ($i=0; $i < 50; $i++) {
+    $json_data[] = [
+        "lazy-id" => ($i+1),
+        "title" => ($i+1).'. '.lorem(1, 4, false),
+        "content" => lorem(2)
+    ];
+}
 
 header('Content-Type: application/json; charset=utf-8');
-echo json_encode($json_data);
+
+if(isset($_GET['page'])){
+    $page = intval($_GET['page']);
+    $pagesize = 10;
+    $buff = [];
+
+    for ($i=0; $i < $pagesize; $i++) {
+        $buff[] = $json_data[$page * $pagesize + $i];
+    }
+    echo json_encode($buff);    
+} else {
+    echo json_encode($json_data);    
+}
