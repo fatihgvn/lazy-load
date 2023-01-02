@@ -19,12 +19,24 @@ class LazyLoad {
         return this.list;
     }
 
-    create(dom:Element){
-        if(dom.getAttribute('lazy-load') == '')
-            this.list.push(new LazyDom(dom));
+    create(dom:Element|LazyDom){
+        if(dom instanceof Element){
+            if(dom.getAttribute('lazy-load') == '')
+                this.list.push(new LazyDom(dom));
+        }else{
+            this.list.push(dom);
+        }
     }
 
-    request(method:string, url:string = '', data:object = {}, page:number = 0) {
+    insertDom(dom:LazyDom){
+        this.list.forEach(dom_element => {
+            if(dom_element.code == dom.code)
+                return false;
+        });
+        return true;
+    }
+
+    request(callback:Function, method:string, url:string = '', data:object = {}, page:number = 0) {
         let xhr:XMLHttpRequest = new XMLHttpRequest();
 
         Object.assign(data, { [this.page_key]: page.toString() });
@@ -64,27 +76,27 @@ class LazyLoad {
         
         xhr.setRequestHeader('Content-type', 'application/json; charset=UTF-8');
 
-        var _this = this;
         xhr.onload = function () {
-            if(xhr.status === 200) {
-                if (_this instanceof LazyDom) {
-                    _this.setContent(JSON.parse(xhr.responseText));
-                }
-            }
+            callback(xhr.status, xhr.responseText, xhr);
         }
-
         xhr.send();
+
+        return xhr;
     }
 }
 
 
-class LazyDom extends LazyLoad {
+class LazyDom {
     public dom:Element;
+    public code:String = '';
+
+    public page:number = 0;
 
     private template:String;
 
+    private block_new_request = false;
+
     constructor(dom:Element|String) {
-        super();
 
         if(dom instanceof String){
             let _dom = document.querySelector(`*[lazy-load=${dom}]`);
@@ -102,9 +114,14 @@ class LazyDom extends LazyLoad {
         this.dom.innerHTML = "";
         
         // Set uniq code
-        this.dom.setAttribute('lazy-load', this.generateCode());
+        this.code = this.generateCode();
+        this.dom.setAttribute('lazy-load', this.code.toString());
 
-        this.updateContent(0);
+        // insert dom in dom list
+        $lazyload.insertDom(this);
+
+        // initial content
+        this.updateContent(this.page);
 
         this.dom.addEventListener('scroll', (event) => {
             let {
@@ -114,7 +131,7 @@ class LazyDom extends LazyLoad {
             } = this.dom;
 
             if (scrollTop + clientHeight >= scrollHeight - 5) {
-                
+                this.updateContent(this.page);
             }
         }, {
             passive: true
@@ -130,7 +147,12 @@ class LazyDom extends LazyLoad {
         return (fourChars() + fourChars() + "-" + fourChars() + "-" + fourChars() + "-" + fourChars() + "-" + fourChars() + fourChars() + fourChars());
     }
 
-    updateContent(page:number|null){
+    updateContent(page:number|null, updatepage:boolean = true){
+
+        if(this.block_new_request) return;
+
+        this.block_new_request = true;
+
         let data:string|null = this.dom.getAttribute('lazy-load-data');
         let url:string|null = this.dom.getAttribute('lazy-load-url');
         let method:string|null = this.dom.getAttribute('lazy-load-method');
@@ -148,7 +170,21 @@ class LazyDom extends LazyLoad {
         if(page == void 0)
             page = 0
 
-        this.request(method, url, data_obj, page);
+
+        let _this = this;
+        $lazyload.request(function (status:number, responseText:string, xhr:any) {
+
+            if(status === 200){
+                _this.setContent(JSON.parse(responseText));
+                _this.block_new_request = false;
+            }
+            
+        }, method, url, data_obj, page);
+
+        if(page == this.page && updatepage){
+            this.page++;
+        }
+        
     }
 
     setContent(data:object[]){

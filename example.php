@@ -61,8 +61,15 @@ if(isset($_GET['page'])){
     $buff = [];
 
     for ($i=0; $i < $pagesize; $i++) {
-        $buff[] = $json_data[$page * $pagesize + $i];
+        if(array_key_exists($page * $pagesize + $i, $json_data))
+            $buff[] = $json_data[$page * $pagesize + $i];
     }
+
+    if(empty($buff)){
+        http_response_code(404);
+        exit();
+    }
+
     echo json_encode($buff);    
 } else {
     echo json_encode($json_data);    

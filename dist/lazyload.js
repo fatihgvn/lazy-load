@@ -1,127 +1,156 @@
 "use strict";
-var __extends = (this && this.__extends) || (function () {
-    var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
-            ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
-            function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
-        return extendStatics(d, b);
-    };
-    return function (d, b) {
-        if (typeof b !== "function" && b !== null)
-            throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
-        extendStatics(d, b);
-        function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
-    };
-})();
-var LazyLoad = (function () {
-    function LazyLoad(selector) {
+class LazyLoad {
+    constructor() {
         this.rundynamic = true;
-        this.lazyselector = '*[lazy-load]';
         this.list = [];
-        if (selector != void 0) {
-            this.lazyselector = selector;
-        }
+        this.page_key = 'page';
     }
-    LazyLoad.prototype.run = function () {
-        this.get_lazy().forEach(function (element) {
-            element.updateContent();
-        });
-    };
-    LazyLoad.prototype.get_lazy = function () {
-        var _this_1 = this;
+    updateDomList() {
         if (this.rundynamic == true || this.list.length == 0) {
-            var doms = document.querySelectorAll(this.lazyselector);
-            doms.forEach(function (element) {
-                _this_1.list.push(new LazyDom(element));
+            let doms = document.querySelectorAll('*[lazy-load]');
+            doms.forEach(element => {
+                this.create(element);
             });
         }
         return this.list;
-    };
-    LazyLoad.prototype.request = function (method, url, data) {
-        if (url === void 0) { url = ''; }
-        if (data === void 0) { data = {}; }
-        var xhr = new XMLHttpRequest();
+    }
+    create(dom) {
+        if (dom instanceof Element) {
+            if (dom.getAttribute('lazy-load') == '')
+                this.list.push(new LazyDom(dom));
+        }
+        else {
+            this.list.push(dom);
+        }
+    }
+    insertDom(dom) {
+        this.list.forEach(dom_element => {
+            if (dom_element.code == dom.code)
+                return false;
+        });
+        return true;
+    }
+    request(callback, method, url = '', data = {}, page = 0) {
+        let xhr = new XMLHttpRequest();
+        Object.assign(data, { [this.page_key]: page.toString() });
         switch (method.toUpperCase()) {
             case 'POST':
                 xhr.open('POST', url, true);
                 xhr.send(JSON.stringify(data));
                 break;
             case 'GET':
-                var search_params = new URLSearchParams();
-                for (var key in data) {
+                let search_params = new URLSearchParams();
+                let use_query = false;
+                search_params.set(this.page_key, page.toString());
+                for (let key in data) {
                     if (Object.prototype.hasOwnProperty.call(data, key)) {
-                        var val = data[key];
+                        let val = data[key];
                         search_params.set(key, val);
+                        use_query = true;
                     }
                 }
-                xhr.open('GET', "".concat(url).concat(search_params.toString()), true);
+                if (use_query) {
+                    url += `?${search_params.toString()}`;
+                }
+                xhr.open('GET', url, true);
                 break;
             default:
-                console.error("'".concat(method.toUpperCase(), "' is not supported"));
+                console.error(`'${method.toUpperCase()}' is not supported`);
                 return;
         }
         xhr.setRequestHeader('Content-type', 'application/json; charset=UTF-8');
-        var _this = this;
         xhr.onload = function () {
-            if (xhr.status === 200) {
-                if (_this instanceof LazyDom) {
-                    _this.setContent(JSON.parse(xhr.responseText));
-                }
-            }
+            callback(xhr.status, xhr.responseText, xhr);
         };
         xhr.send();
-    };
-    return LazyLoad;
-}());
-var LazyDom = (function (_super) {
-    __extends(LazyDom, _super);
-    function LazyDom(dom) {
-        var _this_1 = _super.call(this, null) || this;
+        return xhr;
+    }
+}
+class LazyDom {
+    constructor(dom) {
+        this.code = '';
+        this.page = 0;
+        this.block_new_request = false;
         if (dom instanceof String) {
-            var _dom = document.querySelector("*[lazy-load=".concat(dom, "]"));
+            let _dom = document.querySelector(`*[lazy-load=${dom}]`);
             if (_dom != void 0) {
-                _this_1.dom = _dom;
+                this.dom = _dom;
             }
         }
         else {
-            _this_1.dom = dom;
+            this.dom = dom;
         }
-        _this_1.template = _this_1.dom.innerHTML;
-        _this_1.dom.innerHTML = "";
-        _this_1.dom.setAttribute('lazy-load', _this_1.generateCode());
-        return _this_1;
+        this.template = this.dom.innerHTML;
+        this.dom.innerHTML = "";
+        this.code = this.generateCode();
+        this.dom.setAttribute('lazy-load', this.code.toString());
+        $lazyload.insertDom(this);
+        this.updateContent(this.page);
+        this.dom.addEventListener('scroll', (event) => {
+            let { scrollTop, scrollHeight, clientHeight } = this.dom;
+            if (scrollTop + clientHeight >= scrollHeight - 5) {
+                this.updateContent(this.page);
+            }
+        }, {
+            passive: true
+        });
     }
-    LazyDom.prototype.generateCode = function () {
+    generateCode() {
         var fourChars = function () {
             return (((1 + Math.random()) * 0x10000) | 0).toString(16).substring(1).toUpperCase();
         };
         return (fourChars() + fourChars() + "-" + fourChars() + "-" + fourChars() + "-" + fourChars() + "-" + fourChars() + fourChars() + fourChars());
-    };
-    LazyDom.prototype.updateContent = function () {
-        var data = this.dom.getAttribute('lazy-load-data');
-        var url = this.dom.getAttribute('lazy-load-url');
-        var method = this.dom.getAttribute('lazy-load-method');
+    }
+    updateContent(page, updatepage = true) {
+        if (this.block_new_request)
+            return;
+        this.block_new_request = true;
+        let data = this.dom.getAttribute('lazy-load-data');
+        let url = this.dom.getAttribute('lazy-load-url');
+        let method = this.dom.getAttribute('lazy-load-method');
         if (method == void 0)
             method = 'GET';
         if (url == void 0)
             url = document.URL;
-        var data_obj = {};
+        let data_obj = {};
         if (data != void 0)
             data_obj = JSON.parse(data);
-        this.request(method, url, data_obj);
-    };
-    LazyDom.prototype.setContent = function (data) {
-        var _this_1 = this;
-        data.forEach(function (element) {
-            var template = _this_1.template;
-            for (var key in element) {
+        if (page == void 0)
+            page = 0;
+        let _this = this;
+        $lazyload.request(function (status, responseText, xhr) {
+            if (status === 200) {
+                _this.setContent(JSON.parse(responseText));
+                _this.block_new_request = false;
+            }
+        }, method, url, data_obj, page);
+        if (page == this.page && updatepage) {
+            this.page++;
+        }
+    }
+    setContent(data) {
+        let parser = new DOMParser();
+        let doc;
+        data.forEach(element => {
+            let template = this.template;
+            let lazyid = null;
+            for (let key in element) {
                 if (element.hasOwnProperty(key)) {
-                    template = template.replace("[[".concat(key, "]]"), element[key]);
+                    template = template.replace(`[[${key}]]`, element[key]);
+                    if (key == 'lazy-id' || key == 'lazyid' || key == 'id') {
+                        lazyid = element[key];
+                    }
                 }
             }
-            _this_1.dom.innerHTML += template;
+            doc = parser.parseFromString(template.toString(), 'text/html');
+            if (lazyid != void 0) {
+                let child = doc.body.children.item(0);
+                if (child != null)
+                    child.setAttribute('lazy-dom-id', lazyid);
+            }
+            this.dom.innerHTML += doc.body.innerHTML;
         });
-    };
-    return LazyDom;
-}(LazyLoad));
+    }
+}
+var $lazyload = new LazyLoad();
+$lazyload.updateDomList();
