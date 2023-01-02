@@ -28,11 +28,9 @@
 
     <script src="../dist/lazyload.js"></script>
     <script>
-
         document.addEventListener("DOMContentLoaded", function(event) { 
             if (typeof LazyLoad !== 'undefined') {
-                var lazyload = new LazyLoad();
-                lazyload.run();
+                $lazyload.updateDomList();
             }else{
                 console.error("LazyLoad not found!");
             }

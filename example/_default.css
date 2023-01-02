@@ -8,6 +8,11 @@ h1{
 
 ul{
 	list-style: none;
+
+	max-width: 450px;
+	max-height: 600px;
+
+	overflow-y: scroll;
 }
 
 ul li{
