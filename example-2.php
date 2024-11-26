@@ -1,6 +1,7 @@
 <?php
 
-function lorem($count = 1, $max = 20, $standard = true) {
+function lorem($count = 1, $max = 20, $standard = true)
+{
     $output = '';
 
     if ($standard) {
@@ -36,7 +37,7 @@ function lorem($count = 1, $max = 20, $standard = true) {
     for ($i = 0, $add = ($count - (int) $standard); $i < $add; $i++) {
         shuffle($pool);
         $words = array_slice($pool, 0, mt_rand(3, $max));
-        $output .= ((! $standard && $i === 0) ? '' : ' ') . ucfirst(implode(' ', $words)) . '.';
+        $output .= ((!$standard && $i === 0) ? '' : ' ') . ucfirst(implode(' ', $words)) . '.';
     }
 
     return $output;
@@ -45,19 +46,19 @@ function lorem($count = 1, $max = 20, $standard = true) {
 
 $json_data = [];
 
-for ($i=0; $i < 50; $i++) {
+for ($i = 0; $i < 50; $i++) {
     $json_data[] = [
-        "lazy-id" => ($i+1),
-        "title" => ($i+1).'. '.lorem(1, 4, false),
+        "id" => ($i + 1),
+        "title" => ($i + 1) . '. ' . lorem(1, 4, false),
         "content" => lorem(2)
     ];
 }
 
 header('Content-Type: application/json; charset=utf-8');
 
-if(isset($_GET['page'])){
-    $page = intval($_GET['page']);
-    $pagesize = 10;
+if (isset($_POST['page'])) {
+    $page = intval($_POST['page']);
+    $pagesize = 5;
     $buff = [
         "stat" => [
             'current_page' => $page,
@@ -66,18 +67,18 @@ if(isset($_GET['page'])){
         'result' => []
     ];
 
-    for ($i=0; $i < $pagesize; $i++) {
-        if(array_key_exists($page * $pagesize + $i, $json_data))
+    for ($i = 0; $i < $pagesize; $i++) {
+        if (array_key_exists($page * $pagesize + $i, $json_data))
             $buff['result'][] = $json_data[$page * $pagesize + $i];
     }
 
-    if(empty($buff['result'])){
+    if (empty($buff['result'])) {
         http_response_code(404);
         exit();
     }
 
-    echo json_encode($buff);    
+    echo json_encode($buff);
 } else {
     http_response_code(404);
-    exit();   
+    exit();
 }

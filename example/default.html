@@ -14,8 +14,20 @@
         <div class="py-5">
             <h1>Examples</h1>
 
-            <div class="example1">
-                <ul lazy-load lazy-load-url="/example.php">
+            <div class="example example-1">
+                <h2>Scrolling Example</h2>
+                <ul lazy-load lazy-load-url="../example.php">
+                    <li>
+                        <strong>[[title]]</strong>
+                        <br>
+                        <p>[[content]]</p>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="example example-2">
+                <h2>Pagination Example</h2>
+                <ul lazy-load lazy-load-pagination lazy-load-url="../example-2.php" lazy-load-method="post">
                     <li>
                         <strong>[[title]]</strong>
                         <br>
