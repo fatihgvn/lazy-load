@@ -1,11 +1,17 @@
 
 class LazyLoad {
+    private customMethods: { [key: string]: Function } = {};
+
     rundynamic: Boolean = true;
     list: LazyDom[] = [];
 
     page_key: string = 'page';
 
     constructor() {
+    }
+
+    setMethod(method: string, callback: Function) {
+        this.customMethods[method.toUpperCase()] = callback;
     }
 
     updateDomList() {
@@ -36,60 +42,98 @@ class LazyLoad {
         return true;
     }
 
-    request(callback: Function, method: string, url: string = '', data: object = {}, page: number = 0) {
-        let xhr: XMLHttpRequest = new XMLHttpRequest();
+    private defaultGetMethod(xhr: XMLHttpRequest, url: string, data: object, page: number) {
+        let search_params = new URLSearchParams();
 
+        search_params.set(this.page_key, page.toString());
+
+        for (let key in data) {
+
+            if (Object.prototype.hasOwnProperty.call(data, key)) {
+                let val = data[key as keyof typeof data];
+                search_params.set(key, val);
+            }
+        }
+
+        url += `?${search_params.toString()}`;
+
+        xhr.open('GET', url, true);
+        xhr.setRequestHeader('Content-type', 'application/json; charset=UTF-8');
+    }
+
+    private defaultPostMethod(xhr: XMLHttpRequest, url: string, data: object, page: number) {
+        let urlEncodedDataPairs = [], name;
         (<any>Object).assign(data, { [this.page_key]: page.toString() });
 
-        let sending_data = null;
-        switch (method.toUpperCase()) {
-            case 'POST':
-                let urlEncodedDataPairs = [], name;
-                for (name in data) {
-                    urlEncodedDataPairs.push(encodeURIComponent(name) + '=' + encodeURIComponent((<any>data)[name]));
-                }
-                sending_data = urlEncodedDataPairs.join('&');
-
-                xhr.open('POST', url, true);
-                xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-                break;
-
-            case 'GET':
-                let search_params = new URLSearchParams();
-                let use_query = false;
-
-                search_params.set(this.page_key, page.toString());
-
-                for (let key in data) {
-                    if (Object.prototype.hasOwnProperty.call(data, key)) {
-                        let val = data[key as keyof typeof data];
-                        search_params.set(key, val);
-
-                        use_query = true;
-                    }
-                }
-
-                if (use_query) {
-                    url += `?${search_params.toString()}`;
-                }
-
-                xhr.open('GET', url, true);
-                xhr.setRequestHeader('Content-type', 'application/json; charset=UTF-8');
-                break;
-
-            default:
-                console.error(`'${method.toUpperCase()}' is not supported`);
-                return;
+        for (name in data) {
+            urlEncodedDataPairs.push(encodeURIComponent(name) + '=' + encodeURIComponent((<any>data)[name]));
         }
 
+        const sending_data = urlEncodedDataPairs.join('&');
 
-        xhr.onload = function () {
-            callback(xhr.status, xhr.responseText, xhr);
-        }
-        xhr.send(sending_data);
+        xhr.open('POST', url, true);
+        xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
 
-        return xhr;
+        return sending_data;
     }
+
+    request(
+        callback: Function,
+        method: string,
+        url: string = '',
+        data: object = {},
+        page: number = 0
+    ) {
+
+        const methodUpperCase = method.toUpperCase();
+
+        // Özelleştirilmiş bir metod varsa onu kullan
+        if (this.customMethods[methodUpperCase]) {
+            const result = this.customMethods[methodUpperCase](url, data, page);
+            if (this.isValidResponse(result)) {
+                callback(result.response_code, result);
+            }
+        } else {
+            let xhr: XMLHttpRequest = new XMLHttpRequest();
+            let sending_data: any = null;
+
+            // Varsayılan metodları kullan
+            switch (methodUpperCase) {
+                case 'GET':
+                    this.defaultGetMethod(xhr, url, data, page);
+                    break;
+                case 'POST':
+                    sending_data = this.defaultPostMethod(xhr, url, data, page);
+                    break;
+                default:
+                    console.error(`'${methodUpperCase}' is not supported`);
+                    return;
+            }
+
+            xhr.onload = function () {
+                callback(xhr.status, xhr.responseText);
+            };
+
+            xhr.send(sending_data);
+
+            return xhr;
+        }
+    }
+
+    isValidResponse(response: any): boolean {
+        return (
+            typeof response === 'object' &&
+            response !== null &&
+            response.hasOwnProperty('response_code') &&
+            response.hasOwnProperty('stat') &&
+            response.hasOwnProperty('result') &&
+            typeof response.stat === 'object' &&
+            typeof response.stat.current_page === 'number' &&
+            typeof response.stat.max_page === 'number' &&
+            Array.isArray(response.result)
+        );
+    }
+
 }
 
 
@@ -105,47 +149,54 @@ class LazyDom {
 
     constructor(dom: Element | String) {
 
-        if (dom instanceof String) {
+        if (typeof dom === 'string') {
             let _dom = document.querySelector(`*[lazy-load=${dom}]`);
-            if (_dom != void 0) {
+            if (_dom) {
                 this.dom = _dom;
+            } else {
+                throw new Error(`Element not found for selector: *[lazy-load=${dom}]`);
             }
-        } else {
+        } else if (dom instanceof Element) {
             this.dom = dom;
+        } else {
+            throw new Error('Invalid parameter for LazyDom constructor. Must be a string or Element.');
         }
 
         // Save Template
-        this.template = this.dom.innerHTML;
+        this.setTemplate();
 
         // Clear content
-        this.dom.innerHTML = "";
+        this.clearContent()
 
         // Set uniq code
         this.code = this.generateCode();
         this.dom.setAttribute('lazy-load', this.code.toString());
 
         // insert dom in dom list
-        $lazyload.insertDom(this);
+        Lazyload.insertDom(this);
 
         // initial content
         this.updateContent(this.page);
 
         let pagination: string | null = this.dom.getAttribute('lazy-load-pagination');
 
-        if (pagination == void 0)
+        if (pagination == void 0){
+            var _this = this;
             this.dom.addEventListener('scroll', (event) => {
                 let {
                     scrollTop,
                     scrollHeight,
                     clientHeight
-                } = this.dom;
+                } = _this.dom;
 
                 if (scrollTop + clientHeight >= scrollHeight - 5) {
-                    this.updateContent(this.page);
+                    _this.updateContent(_this.page);
                 }
             }, {
                 passive: true
             });
+
+        }
 
     }
 
@@ -188,13 +239,17 @@ class LazyDom {
         }
 
         let _this = this;
-        $lazyload.request(function (status: number, responseText: string, xhr: any) {
+        Lazyload.request(function (status: number, responseText: any) {
 
             if (status === 200) {
-                let _data = JSON.parse(responseText);
+                let _data = responseText;
+
+                if (typeof responseText === 'string')
+                    _data = JSON.parse(responseText);
 
                 if (pagination)
-                    _this.setPagination(_data.stat);
+                    if (!(!_data.stat || typeof _data.stat.current_page !== 'number' || typeof _data.stat.max_page !== 'number'))
+                        _this.setPagination(_data.stat);
                 _this.setContent(_data.result, <boolean>pagination);
 
                 _this.block_new_request = false;
@@ -208,8 +263,26 @@ class LazyDom {
 
     }
 
-    clearContent(){
-        this.dom.innerHTML = "";
+    setTemplate() {
+        if (this.dom.tagName.toLowerCase() === 'table') {
+            const tbody = this.dom.querySelector('tbody');
+            if (tbody) {
+                this.template = tbody.innerHTML;
+            }
+        } else {
+            this.template = this.dom.innerHTML;
+        }
+    }
+
+    clearContent() {
+        if (this.dom.tagName.toLowerCase() === 'table') {
+            const tbody = this.dom.querySelector('tbody');
+            if (tbody) {
+                tbody.innerHTML = "";
+            }
+        } else {
+            this.dom.innerHTML = "";
+        }
     }
 
     goPageHandler(button: HTMLElement) {
@@ -221,9 +294,9 @@ class LazyDom {
         const lazyTarget = button.getAttribute('lazy-target');
         console.log(`Lazy Parent: ${lazyParent}, Lazy Target: ${lazyTarget}`);
 
-        let target_page : number;
+        let target_page: number;
 
-        if(lazyTarget == undefined || lazyTarget == null)
+        if (lazyTarget == undefined || lazyTarget == null)
             return;
 
         target_page = parseInt(lazyTarget);
@@ -264,11 +337,11 @@ class LazyDom {
         const { current_page, max_page } = stat;
 
         // "<<" İlk sayfaya git
-        if(current_page > 2)
+        if (current_page > 2)
             paginationWrapper.appendChild(createButton('<<', 0, current_page === 1));
 
         // "<" Bir önceki sayfaya git
-        if(current_page > 0)
+        if (current_page > 0)
             paginationWrapper.appendChild(createButton('<', current_page - 1, false));
 
         // Orta sayfa numaralarını hesapla
@@ -296,11 +369,11 @@ class LazyDom {
         }
 
         // ">" Bir sonraki sayfaya git
-        if(current_page < max_page)
+        if (current_page < max_page)
             paginationWrapper.appendChild(createButton('>', current_page + 1, current_page === max_page));
 
         // ">>" Son sayfaya git
-        if(current_page < max_page - 2)
+        if (current_page < max_page - 2)
             paginationWrapper.appendChild(createButton('>>', max_page, current_page === max_page));
 
         // Pagination'u DOM'a ekle
@@ -326,19 +399,36 @@ class LazyDom {
                 }
             }
 
-            doc = parser.parseFromString(template.toString(), 'text/html');
+            if (this.dom.tagName.toLowerCase() === 'table') {
+                doc = parser.parseFromString("<table>" + template.toString() + "</table>", 'text/html');
+            }else{
+                doc = parser.parseFromString(template.toString(), 'text/html');
+            }
 
             if (lazyid != void 0) {
                 let child = doc.body.children.item(0);
+
+                if (this.dom.tagName.toLowerCase() === 'table') {
+                    child = doc.querySelector('tr');
+                }
+                
                 if (child != null)
                     child.setAttribute('lazy-dom-id', lazyid);
             }
 
-            this.dom.innerHTML += doc.body.innerHTML;
+            if (this.dom.tagName.toLowerCase() === 'table') {
+                const tbody = this.dom.querySelector('tbody');
+                if (tbody) {
+                    let ndata = doc.querySelector('tbody');
+                    if(!ndata)
+                        return;
+                    tbody.innerHTML += ndata.innerHTML;
+                }
+            } else {
+                this.dom.innerHTML += doc.body.innerHTML;
+            }
         });
-
     }
 }
 
-var $lazyload = new LazyLoad();
-$lazyload.updateDomList();
+var Lazyload = new LazyLoad();

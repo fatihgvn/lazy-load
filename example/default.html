@@ -37,12 +37,32 @@
             </div>
         </div>
     </div>
+    <div class="container pt-5">
+        <div class="py-5">
+            <h1>Table Examples</h1>
+
+            <table class="example example-2" lazy-load lazy-load-pagination lazy-load-url="../example-2.php" lazy-load-method="post">
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Content</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>[[title]]</td>
+                        <td>[[content]]</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 
     <script src="../dist/lazyload.js"></script>
     <script>
         document.addEventListener("DOMContentLoaded", function(event) { 
             if (typeof LazyLoad !== 'undefined') {
-                $lazyload.updateDomList();
+                Lazyload.updateDomList();
             }else{
                 console.error("LazyLoad not found!");
             }

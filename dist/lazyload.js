@@ -1,9 +1,13 @@
 "use strict";
 class LazyLoad {
     constructor() {
+        this.customMethods = {};
         this.rundynamic = true;
         this.list = [];
         this.page_key = 'page';
+    }
+    setMethod(method, callback) {
+        this.customMethods[method.toUpperCase()] = callback;
     }
     updateDomList() {
         if (this.rundynamic == true || this.list.length == 0) {
@@ -30,46 +34,69 @@ class LazyLoad {
         });
         return true;
     }
-    request(callback, method, url = '', data = {}, page = 0) {
-        let xhr = new XMLHttpRequest();
-        Object.assign(data, { [this.page_key]: page.toString() });
-        let sending_data = null;
-        switch (method.toUpperCase()) {
-            case 'POST':
-                let urlEncodedDataPairs = [], name;
-                for (name in data) {
-                    urlEncodedDataPairs.push(encodeURIComponent(name) + '=' + encodeURIComponent(data[name]));
-                }
-                sending_data = urlEncodedDataPairs.join('&');
-                xhr.open('POST', url, true);
-                xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-                break;
-            case 'GET':
-                let search_params = new URLSearchParams();
-                let use_query = false;
-                search_params.set(this.page_key, page.toString());
-                for (let key in data) {
-                    if (Object.prototype.hasOwnProperty.call(data, key)) {
-                        let val = data[key];
-                        search_params.set(key, val);
-                        use_query = true;
-                    }
-                }
-                if (use_query) {
-                    url += `?${search_params.toString()}`;
-                }
-                xhr.open('GET', url, true);
-                xhr.setRequestHeader('Content-type', 'application/json; charset=UTF-8');
-                break;
-            default:
-                console.error(`'${method.toUpperCase()}' is not supported`);
-                return;
+    defaultGetMethod(xhr, url, data, page) {
+        let search_params = new URLSearchParams();
+        search_params.set(this.page_key, page.toString());
+        for (let key in data) {
+            if (Object.prototype.hasOwnProperty.call(data, key)) {
+                let val = data[key];
+                search_params.set(key, val);
+            }
         }
-        xhr.onload = function () {
-            callback(xhr.status, xhr.responseText, xhr);
-        };
-        xhr.send(sending_data);
-        return xhr;
+        url += `?${search_params.toString()}`;
+        xhr.open('GET', url, true);
+        xhr.setRequestHeader('Content-type', 'application/json; charset=UTF-8');
+    }
+    defaultPostMethod(xhr, url, data, page) {
+        let urlEncodedDataPairs = [], name;
+        Object.assign(data, { [this.page_key]: page.toString() });
+        for (name in data) {
+            urlEncodedDataPairs.push(encodeURIComponent(name) + '=' + encodeURIComponent(data[name]));
+        }
+        const sending_data = urlEncodedDataPairs.join('&');
+        xhr.open('POST', url, true);
+        xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+        return sending_data;
+    }
+    request(callback, method, url = '', data = {}, page = 0) {
+        const methodUpperCase = method.toUpperCase();
+        if (this.customMethods[methodUpperCase]) {
+            const result = this.customMethods[methodUpperCase](url, data, page);
+            if (this.isValidResponse(result)) {
+                callback(result.response_code, result);
+            }
+        }
+        else {
+            let xhr = new XMLHttpRequest();
+            let sending_data = null;
+            switch (methodUpperCase) {
+                case 'GET':
+                    this.defaultGetMethod(xhr, url, data, page);
+                    break;
+                case 'POST':
+                    sending_data = this.defaultPostMethod(xhr, url, data, page);
+                    break;
+                default:
+                    console.error(`'${methodUpperCase}' is not supported`);
+                    return;
+            }
+            xhr.onload = function () {
+                callback(xhr.status, xhr.responseText);
+            };
+            xhr.send(sending_data);
+            return xhr;
+        }
+    }
+    isValidResponse(response) {
+        return (typeof response === 'object' &&
+            response !== null &&
+            response.hasOwnProperty('response_code') &&
+            response.hasOwnProperty('stat') &&
+            response.hasOwnProperty('result') &&
+            typeof response.stat === 'object' &&
+            typeof response.stat.current_page === 'number' &&
+            typeof response.stat.max_page === 'number' &&
+            Array.isArray(response.result));
     }
 }
 class LazyDom {
@@ -77,31 +104,39 @@ class LazyDom {
         this.code = '';
         this.page = 0;
         this.block_new_request = false;
-        if (dom instanceof String) {
+        if (typeof dom === 'string') {
             let _dom = document.querySelector(`*[lazy-load=${dom}]`);
-            if (_dom != void 0) {
+            if (_dom) {
                 this.dom = _dom;
             }
+            else {
+                throw new Error(`Element not found for selector: *[lazy-load=${dom}]`);
+            }
         }
-        else {
+        else if (dom instanceof Element) {
             this.dom = dom;
         }
-        this.template = this.dom.innerHTML;
-        this.dom.innerHTML = "";
+        else {
+            throw new Error('Invalid parameter for LazyDom constructor. Must be a string or Element.');
+        }
+        this.setTemplate();
+        this.clearContent();
         this.code = this.generateCode();
         this.dom.setAttribute('lazy-load', this.code.toString());
-        $lazyload.insertDom(this);
+        Lazyload.insertDom(this);
         this.updateContent(this.page);
         let pagination = this.dom.getAttribute('lazy-load-pagination');
-        if (pagination == void 0)
+        if (pagination == void 0) {
+            var _this = this;
             this.dom.addEventListener('scroll', (event) => {
-                let { scrollTop, scrollHeight, clientHeight } = this.dom;
+                let { scrollTop, scrollHeight, clientHeight } = _this.dom;
                 if (scrollTop + clientHeight >= scrollHeight - 5) {
-                    this.updateContent(this.page);
+                    _this.updateContent(_this.page);
                 }
             }, {
                 passive: true
             });
+        }
     }
     generateCode() {
         var fourChars = function () {
@@ -133,11 +168,14 @@ class LazyDom {
             pagination = true;
         }
         let _this = this;
-        $lazyload.request(function (status, responseText, xhr) {
+        Lazyload.request(function (status, responseText) {
             if (status === 200) {
-                let _data = JSON.parse(responseText);
+                let _data = responseText;
+                if (typeof responseText === 'string')
+                    _data = JSON.parse(responseText);
                 if (pagination)
-                    _this.setPagination(_data.stat);
+                    if (!(!_data.stat || typeof _data.stat.current_page !== 'number' || typeof _data.stat.max_page !== 'number'))
+                        _this.setPagination(_data.stat);
                 _this.setContent(_data.result, pagination);
                 _this.block_new_request = false;
             }
@@ -146,8 +184,27 @@ class LazyDom {
             this.page++;
         }
     }
+    setTemplate() {
+        if (this.dom.tagName.toLowerCase() === 'table') {
+            const tbody = this.dom.querySelector('tbody');
+            if (tbody) {
+                this.template = tbody.innerHTML;
+            }
+        }
+        else {
+            this.template = this.dom.innerHTML;
+        }
+    }
     clearContent() {
-        this.dom.innerHTML = "";
+        if (this.dom.tagName.toLowerCase() === 'table') {
+            const tbody = this.dom.querySelector('tbody');
+            if (tbody) {
+                tbody.innerHTML = "";
+            }
+        }
+        else {
+            this.dom.innerHTML = "";
+        }
     }
     goPageHandler(button) {
         const getLazyParent = (element) => {
@@ -230,15 +287,33 @@ class LazyDom {
                     }
                 }
             }
-            doc = parser.parseFromString(template.toString(), 'text/html');
+            if (this.dom.tagName.toLowerCase() === 'table') {
+                doc = parser.parseFromString("<table>" + template.toString() + "</table>", 'text/html');
+            }
+            else {
+                doc = parser.parseFromString(template.toString(), 'text/html');
+            }
             if (lazyid != void 0) {
                 let child = doc.body.children.item(0);
+                if (this.dom.tagName.toLowerCase() === 'table') {
+                    child = doc.querySelector('tr');
+                }
                 if (child != null)
                     child.setAttribute('lazy-dom-id', lazyid);
             }
-            this.dom.innerHTML += doc.body.innerHTML;
+            if (this.dom.tagName.toLowerCase() === 'table') {
+                const tbody = this.dom.querySelector('tbody');
+                if (tbody) {
+                    let ndata = doc.querySelector('tbody');
+                    if (!ndata)
+                        return;
+                    tbody.innerHTML += ndata.innerHTML;
+                }
+            }
+            else {
+                this.dom.innerHTML += doc.body.innerHTML;
+            }
         });
     }
 }
-var $lazyload = new LazyLoad();
-$lazyload.updateDomList();
+var Lazyload = new LazyLoad();
